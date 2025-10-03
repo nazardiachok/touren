@@ -13,6 +13,61 @@ const TIMELINE_START = 6;
 const TIMELINE_END = 22; 
 const PIXELS_PER_HOUR = 120;
 
+const getTaskColor = (taskType: TaskType): { bg: string; border: string; text: string; badge: string } => {
+  const colors = {
+    koerperpflege: {
+      bg: 'bg-blue-100',
+      border: 'border-blue-400',
+      text: 'text-blue-900',
+      badge: 'bg-blue-200 text-blue-800',
+    },
+    medikamente: {
+      bg: 'bg-red-100',
+      border: 'border-red-400',
+      text: 'text-red-900',
+      badge: 'bg-red-200 text-red-800',
+    },
+    wundversorgung: {
+      bg: 'bg-orange-100',
+      border: 'border-orange-400',
+      text: 'text-orange-900',
+      badge: 'bg-orange-200 text-orange-800',
+    },
+    mobilisation: {
+      bg: 'bg-green-100',
+      border: 'border-green-400',
+      text: 'text-green-900',
+      badge: 'bg-green-200 text-green-800',
+    },
+    ernaehrung: {
+      bg: 'bg-yellow-100',
+      border: 'border-yellow-400',
+      text: 'text-yellow-900',
+      badge: 'bg-yellow-200 text-yellow-800',
+    },
+    dokumentation: {
+      bg: 'bg-gray-100',
+      border: 'border-gray-400',
+      text: 'text-gray-900',
+      badge: 'bg-gray-200 text-gray-800',
+    },
+    arztbesuch: {
+      bg: 'bg-purple-100',
+      border: 'border-purple-400',
+      text: 'text-purple-900',
+      badge: 'bg-purple-200 text-purple-800',
+    },
+    freizeitgestaltung: {
+      bg: 'bg-pink-100',
+      border: 'border-pink-400',
+      text: 'text-pink-900',
+      badge: 'bg-pink-200 text-pink-800',
+    },
+  };
+
+  return colors[taskType] || colors.koerperpflege;
+};
+
 const getMinutesSinceMidnight = (time: Date | string) => {
   const date = typeof time === 'string' ? new Date(time) : time;
   return date.getHours() * 60 + date.getMinutes();
@@ -394,11 +449,12 @@ export default function TourenPage() {
                           
                           const topPosition = getPixelsFromTop(task.scheduledTime);
                           const height = getHeightInPixels(task.estimatedDuration);
+                          const colors = getTaskColor(task.type);
 
                           return (
                             <div
                               key={task.id}
-                              className="absolute left-1 right-1 bg-blue-100 border-2 border-blue-300 rounded-lg p-2 hover:shadow-lg hover:z-20 transition-all cursor-pointer group overflow-hidden"
+                              className={`absolute left-1 right-1 ${colors.bg} border-2 ${colors.border} rounded-lg p-2 hover:shadow-lg hover:z-20 transition-all cursor-pointer group overflow-hidden`}
                               style={{
                                 top: `${topPosition}px`,
                                 height: `${height}px`,
@@ -428,11 +484,11 @@ export default function TourenPage() {
                               </div>
 
                               {/* Content */}
-                              <div className="text-[10px] font-bold text-gray-900 mb-0.5">
+                              <div className={`text-[10px] font-bold ${colors.text} mb-0.5`}>
                                 {formatDate(taskStart, 'HH:mm')} - {formatDate(taskEnd, 'HH:mm')}
                               </div>
                               
-                              <div className="text-xs font-semibold text-gray-800 mb-0.5 truncate">
+                              <div className={`text-xs font-semibold ${colors.text} mb-0.5 truncate`}>
                                 {resident?.name || 'Unbekannt'}
                               </div>
 
@@ -444,7 +500,7 @@ export default function TourenPage() {
 
                               {height > 40 && (
                                 <div className="flex flex-wrap gap-0.5 mt-1">
-                                  <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 rounded text-[9px] font-medium">
+                                  <span className={`px-1.5 py-0.5 ${colors.badge} rounded text-[9px] font-medium`}>
                                     {task.type}
                                   </span>
                                   {resident && (
