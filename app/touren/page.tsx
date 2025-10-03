@@ -1,12 +1,14 @@
 'use client';
 
+import { AIChat } from '@/components/AIChat';
+import { preparePlanningContext, type AIPlanningRequest } from '@/lib/services/aiPlanning';
 import { initializeMockTours } from '@/lib/services/mockTours';
 import { useEmployeeStore } from '@/lib/store/employeeStore';
 import { useResidentStore } from '@/lib/store/residentStore';
 import { useTourStore } from '@/lib/store/tourStore';
 import type { Resident, Task, TaskType } from '@/lib/types';
 import { formatDate } from '@/lib/utils/date';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Edit2, Home, Save, Trash2, User as UserIcon, Users, X } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Edit2, Home, Save, Sparkles, Trash2, User as UserIcon, Users, X, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const TIMELINE_START = 6;
@@ -69,6 +71,11 @@ export default function TourenPage() {
   const [dragPosition, setDragPosition] = useState<{ y: number; minutes: number } | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<{ task: Task; tourId: string } | null>(null);
+  
+  // KI-Planning State
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<{ reasoning: string; warnings?: string[] } | null>(null);
+  const [showAiDialog, setShowAiDialog] = useState(false);
   
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -386,6 +393,62 @@ export default function TourenPage() {
     setEditingTask(null);
   };
 
+  // KI-Planungsfunktionen
+  const handleAIPlanning = async (action: 'create_full_plan' | 'optimize_existing') => {
+    setAiLoading(true);
+    setAiResult(null);
+    
+    try {
+      const context = preparePlanningContext(selectedDate, employees, residents, dayTours);
+      
+      const request: AIPlanningRequest = {
+        context,
+        action,
+      };
+
+      console.log('🤖 Starte KI-Planung:', action);
+      
+      const response = await fetch('/api/ai-planning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'API-Fehler');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        console.log('✅ KI-Planung erfolgreich:', result.data);
+        
+        // Lösche alte Touren für diesen Tag
+        dayTours.forEach(tour => useTourStore.getState().deleteTour(tour.id));
+        
+        // Erstelle neue Touren
+        result.data.tours.forEach((tourInput: any) => {
+          addTour(tourInput);
+        });
+        
+        setAiResult({
+          reasoning: result.data.reasoning,
+          warnings: result.data.warnings,
+        });
+        setShowAiDialog(true);
+        
+        // Reload tours
+        setTimeout(() => loadTours(), 500);
+      }
+    } catch (error) {
+      console.error('❌ KI-Planungsfehler:', error);
+      alert(`Fehler bei KI-Planung: ${error instanceof Error ? error.message : 'Unbekannt'}`);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const timeSlots: string[] = [];
   for (let hour = TIMELINE_START; hour <= TIMELINE_END; hour++) {
     timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
@@ -400,6 +463,29 @@ export default function TourenPage() {
             <h1 className="text-xl font-bold text-gray-900">Tourenplanung</h1>
             
             <div className="flex items-center gap-3">
+              {/* KI-Buttons */}
+              <button 
+                onClick={() => handleAIPlanning('create_full_plan')} 
+                disabled={aiLoading}
+                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg text-sm font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles className="w-4 h-4" />
+                {aiLoading ? 'KI plant...' : 'KI-Planung starten'}
+              </button>
+              
+              {dayTours.length > 0 && (
+                <button 
+                  onClick={() => handleAIPlanning('optimize_existing')} 
+                  disabled={aiLoading}
+                  className="px-3 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4" />
+                  {aiLoading ? '...' : 'Optimieren'}
+                </button>
+              )}
+              
+              <div className="w-px h-8 bg-gray-300" />
+              
               <button onClick={goToToday} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4" />
                 Heute
@@ -856,6 +942,58 @@ export default function TourenPage() {
           </div>
           </div>
         )}
+
+      {/* KI-Result Dialog */}
+      {showAiDialog && aiResult && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-2xl w-full p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-purple-100 to-pink-100 rounded-lg">
+                  <Sparkles className="w-6 h-6 text-purple-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">KI-Planung abgeschlossen</h2>
+                  <p className="text-sm text-gray-600">Die Touren wurden erfolgreich erstellt</p>
+                </div>
+              </div>
+              <button onClick={() => setShowAiDialog(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-semibold text-blue-900 mb-2">💡 KI-Reasoning</h3>
+                <p className="text-sm text-blue-800">{aiResult.reasoning}</p>
+              </div>
+
+              {aiResult.warnings && aiResult.warnings.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-yellow-900 mb-2">⚠️ Warnungen</h3>
+                  <ul className="list-disc list-inside space-y-1">
+                    {aiResult.warnings.map((warning, idx) => (
+                      <li key={idx} className="text-sm text-yellow-800">{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowAiDialog(false)} 
+                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Verstanden
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Chat Widget */}
+      <AIChat />
     </div>
   );
 }
