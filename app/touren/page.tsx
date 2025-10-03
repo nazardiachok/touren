@@ -66,6 +66,7 @@ export default function TourenPage() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [draggedResident, setDraggedResident] = useState<Resident | null>(null);
   const [draggedTask, setDraggedTask] = useState<{ task: Task; tourId: string; employeeId: string } | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ y: number; minutes: number } | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<{ task: Task; tourId: string } | null>(null);
   
@@ -291,8 +292,12 @@ export default function TourenPage() {
   };
 
   const handleTaskDragStart = (task: Task, tourId: string, employeeId: string) => {
-    if (task.residentId === 'driving') return; // Fahrtzeit nicht verschiebbar
     setDraggedTask({ task, tourId, employeeId });
+  };
+
+  const handleTaskDragEnd = () => {
+    setDraggedTask(null);
+    setDragPosition(null);
   };
 
   const handleDeleteTask = (task: Task, tourId: string) => {
@@ -306,8 +311,13 @@ export default function TourenPage() {
   };
 
   const handleSaveTask = () => {
-    if (!formData.employeeId || !formData.residentId) {
-      alert('Bitte wähle Mitarbeiter und Bewohner aus');
+    if (!formData.employeeId) {
+      alert('Bitte wähle einen Mitarbeiter aus');
+      return;
+    }
+    
+    if (formData.residentId !== 'driving' && !formData.residentId) {
+      alert('Bitte wähle einen Bewohner aus');
       return;
     }
 
@@ -373,6 +383,7 @@ export default function TourenPage() {
 
     setShowDialog(false);
     setDraggedResident(null);
+    setEditingTask(null);
   };
 
   const timeSlots: string[] = [];
@@ -416,47 +427,94 @@ export default function TourenPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Bewohner */}
-        <div className="w-64 bg-white border-r flex-shrink-0 overflow-y-auto">
-          <div className="p-3 border-b bg-gray-50">
-            <div className="flex items-center gap-2 mb-1">
-              <Home className="w-4 h-4 text-gray-600" />
-              <h2 className="text-sm font-bold text-gray-900">Bewohner</h2>
-            </div>
-            <p className="text-xs text-gray-600">{activeResidents.length} aktiv</p>
-                  </div>
-          <div className="p-2 space-y-1">
-            {activeResidents.map((resident) => (
-              <div
-                key={resident.id}
-                draggable
-                onDragStart={() => handleDragStart(resident)}
-                className="p-2 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded cursor-move transition-colors"
-              >
-                <div className="text-sm font-semibold text-gray-900 truncate">{resident.name}</div>
-                <div className="text-xs text-gray-600 truncate">{resident.address.street} {resident.address.houseNumber}</div>
-                <div className="flex gap-1 mt-1">
-                  <span className="px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded text-[10px]">PG {resident.careLevel}</span>
-                </div>
+        <div className="w-72 bg-gradient-to-b from-blue-50 to-white border-r border-blue-100 flex-shrink-0 overflow-y-auto shadow-sm">
+          <div className="p-4 border-b border-blue-200 bg-gradient-to-r from-blue-100 to-blue-50">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="p-2 bg-blue-500 rounded-lg shadow-sm">
+                <Home className="w-5 h-5 text-white" />
               </div>
-            ))}
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Bewohner</h2>
+                <p className="text-xs text-gray-600">{activeResidents.length} aktiv</p>
+              </div>
+            </div>
           </div>
-        </div>
+          <div className="p-3 space-y-2">
+            {activeResidents.map((resident, index) => {
+              const careLevelColors = {
+                1: 'bg-blue-100 text-blue-700 border-blue-300',
+                2: 'bg-green-100 text-green-700 border-green-300',
+                3: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+                4: 'bg-orange-100 text-orange-700 border-orange-300',
+                5: 'bg-red-100 text-red-700 border-red-300',
+              };
+              const levelColor = careLevelColors[resident.careLevel as keyof typeof careLevelColors] || 'bg-gray-100 text-gray-700 border-gray-300';
+              
+              return (
+                <div
+                  key={resident.id}
+                  draggable
+                  onDragStart={() => handleDragStart(resident)}
+                  className="p-3 bg-white hover:bg-blue-50 border-2 border-gray-200 hover:border-blue-400 rounded-lg cursor-move transition-all duration-200 shadow-sm hover:shadow-md transform hover:-translate-y-0.5"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-gray-900 truncate">{resident.name}</div>
+                      <div className="text-xs text-gray-600 truncate mt-0.5">
+                        📍 {resident.address.street} {resident.address.houseNumber}
+                      </div>
+                    </div>
+                    <div className={`px-2 py-1 ${levelColor} border rounded-full text-xs font-bold whitespace-nowrap shadow-sm`}>
+                      PG {resident.careLevel}
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {resident.requirements.slice(0, 3).map((req, idx) => (
+                      <span key={idx} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-medium">
+                        {req.type}
+                      </span>
+                    ))}
+                    {resident.requirements.length > 3 && (
+                      <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-[10px] font-medium">
+                        +{resident.requirements.length - 3}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </div>
 
         {/* Timeline Center */}
         <div className="flex-1 overflow-auto p-4">
           <div className="bg-white rounded-lg shadow-lg border min-w-[1000px]">
             <div className="flex">
               {/* Zeit-Spalte */}
-              <div className="w-16 border-r bg-gray-50 flex-shrink-0">
+              <div className="w-16 border-r bg-gray-50 flex-shrink-0 relative">
                 <div className="h-12 border-b flex items-center justify-center">
                   <Clock className="w-4 h-4 text-gray-500" />
                 </div>
                 <div className="relative" style={{ height: `${(TIMELINE_END - TIMELINE_START) * PIXELS_PER_HOUR}px` }}>
+                  {/* Stunden-Linien */}
                   {timeSlots.map((time, index) => (
                     <div key={time} className="absolute left-0 right-0 border-t border-gray-200" style={{ top: `${index * PIXELS_PER_HOUR}px` }}>
                       <div className="text-[10px] font-semibold text-gray-700 p-1">{time}</div>
                     </div>
                   ))}
+
+                  {/* Minuten-Lineal beim Drag */}
+                  {draggedTask && dragPosition && (
+                    <div
+                      className="absolute left-0 right-0 border-t-2 border-red-500 pointer-events-none transition-all duration-75 z-50"
+                      style={{ top: `${((dragPosition.minutes - TIMELINE_START * 60) / 60) * PIXELS_PER_HOUR}px` }}
+                    >
+                      <div className="text-xs font-bold px-1 text-red-600 bg-red-50 rounded shadow-sm inline-block">
+                        {String(Math.floor(dragPosition.minutes / 60)).padStart(2, '0')}:{String(dragPosition.minutes % 60).padStart(2, '0')}
+                      </div>
+                    </div>
+                  )}
                           </div>
                           </div>
 
@@ -489,7 +547,13 @@ export default function TourenPage() {
                         <div 
                           className="relative bg-gradient-to-b from-gray-50 to-white"
                           style={{ height: `${(TIMELINE_END - TIMELINE_START) * PIXELS_PER_HOUR}px` }}
-                          onDragOver={(e) => e.preventDefault()}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const y = e.clientY - rect.top;
+                            const minutes = Math.floor(TIMELINE_START * 60 + (y / PIXELS_PER_HOUR) * 60);
+                            setDragPosition({ y, minutes });
+                          }}
                           onDrop={(e) => {
                             e.preventDefault();
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -522,55 +586,86 @@ export default function TourenPage() {
                           {tasks.map((task, taskIndex) => {
                             const resident = residents.find(r => r.id === task.residentId);
                             const isDriving = task.residentId === 'driving';
-                            const taskStart = new Date(task.scheduledTime);
-                            const taskEnd = new Date(taskStart.getTime() + task.estimatedDuration * 60000);
                             
-                            const topPosition = getPixelsFromTop(task.scheduledTime);
+                            // Live-Zeit während Drag
+                            const isBeingDragged = draggedTask?.task.id === task.id && draggedTask.employeeId === employee.id;
+                            let displayStart = new Date(task.scheduledTime);
+                            let displayEnd = new Date(displayStart.getTime() + task.estimatedDuration * 60000);
+                            let topPosition = getPixelsFromTop(task.scheduledTime);
+                            
+                            if (isBeingDragged && dragPosition) {
+                              const newStartDate = new Date(selectedDate);
+                              const hours = Math.floor(dragPosition.minutes / 60);
+                              const mins = dragPosition.minutes % 60;
+                              newStartDate.setHours(hours, mins, 0, 0);
+                              displayStart = newStartDate;
+                              displayEnd = new Date(displayStart.getTime() + task.estimatedDuration * 60000);
+                              topPosition = ((dragPosition.minutes - TIMELINE_START * 60) / 60) * PIXELS_PER_HOUR;
+                            }
+                            
                             const height = getHeightInPixels(task.estimatedDuration);
                             const colors = getTaskColor(task.type, isDriving);
 
-                            // Prüfe ob es eine nachfolgende Task gibt
-                            const nextTask = tasks[taskIndex + 1];
-                            const hasNextTask = nextTask && new Date(nextTask.scheduledTime) <= taskEnd;
+                            // Prüfe ob darüber oder darunter eine Task liegt (Überlappung)
+                            const overlappingTasks = tasks.filter((t, idx) => {
+                              if (idx === taskIndex || t.id === task.id) return false;
+                              const tStart = new Date(t.scheduledTime);
+                              const tEnd = new Date(tStart.getTime() + t.estimatedDuration * 60000);
+                              const taskStart = new Date(task.scheduledTime);
+                              const taskEnd = new Date(taskStart.getTime() + task.estimatedDuration * 60000);
+                              return (tStart >= taskStart && tStart < taskEnd) || (tEnd > taskStart && tEnd <= taskEnd) || (tStart <= taskStart && tEnd >= taskEnd);
+                            });
+                            const hasOverlap = overlappingTasks.length > 0;
 
                             return (
                               <div key={task.id} className="relative">
                                 <div
-                                  draggable={!isDriving}
+                                  draggable={true}
                                   onDragStart={(e) => {
-                                    if (!isDriving) {
-                                      handleTaskDragStart(task, task.tourId, employee.id);
-                                      e.dataTransfer.effectAllowed = 'move';
-                                    }
+                                    handleTaskDragStart(task, task.tourId, employee.id);
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    // Ghost-Image ausblenden
+                                    const ghost = document.createElement('div');
+                                    ghost.style.opacity = '0';
+                                    ghost.style.position = 'absolute';
+                                    ghost.style.top = '-1000px';
+                                    document.body.appendChild(ghost);
+                                    e.dataTransfer.setDragImage(ghost, 0, 0);
+                                    setTimeout(() => document.body.removeChild(ghost), 0);
                                   }}
-                                  className={`absolute left-1 right-1 ${colors.bg} border-2 ${colors.border} rounded p-1.5 hover:shadow-lg hover:z-20 transition-all ${isDriving ? 'cursor-default' : 'cursor-move'} group overflow-hidden`}
-                                  style={{ top: `${topPosition}px`, height: `${height}px`, minHeight: '30px' }}
+                                  onDragEnd={handleTaskDragEnd}
+                                  className={`absolute left-1 right-1 ${colors.bg} border-2 ${colors.border} rounded p-1.5 hover:shadow-lg hover:z-20 cursor-move group overflow-hidden ${isBeingDragged ? 'shadow-2xl z-30' : ''}`}
+                                  style={{ 
+                                    top: `${topPosition}px`, 
+                                    height: `${Math.max(height, isDriving ? 20 : 30)}px`, 
+                                    minHeight: isDriving ? '20px' : '30px',
+                                    opacity: hasOverlap ? 0.75 : 1,
+                                    transition: isBeingDragged ? 'none' : 'all 0.15s',
+                                  }}
                                 >
-                                  {!isDriving && (
-                                    <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-opacity z-30">
-                                      <button 
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          handleEditTask(task, task.tourId); 
-                                        }} 
-                                        className="p-0.5 bg-white rounded hover:bg-blue-50 shadow-sm"
-                                      >
-                                        <Edit2 className="w-3 h-3 text-blue-600" />
-                                      </button>
-                                      <button 
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          handleDeleteTask(task, task.tourId); 
-                                        }} 
-                                        className="p-0.5 bg-white rounded hover:bg-red-50 shadow-sm"
-                                      >
-                                        <Trash2 className="w-3 h-3 text-red-600" />
-                                      </button>
-                                    </div>
-                                  )}
+                                  <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-opacity z-30">
+                                    <button 
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        handleEditTask(task, task.tourId); 
+                                      }} 
+                                      className="p-0.5 bg-white rounded hover:bg-blue-50 shadow-sm"
+                                    >
+                                      <Edit2 className="w-3 h-3 text-blue-600" />
+                                    </button>
+                                    <button 
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        handleDeleteTask(task, task.tourId); 
+                                      }} 
+                                      className="p-0.5 bg-white rounded hover:bg-red-50 shadow-sm"
+                                    >
+                                      <Trash2 className="w-3 h-3 text-red-600" />
+                                    </button>
+                                  </div>
 
                                   <div className={`text-[9px] font-bold ${colors.text} truncate`}>
-                                    {formatDate(taskStart, 'HH:mm')} - {formatDate(taskEnd, 'HH:mm')}
+                                    {formatDate(displayStart, 'HH:mm')} - {formatDate(displayEnd, 'HH:mm')}
                                   </div>
                                   
                                   {isDriving ? (
@@ -589,17 +684,6 @@ export default function TourenPage() {
                                     </>
                                   )}
                                 </div>
-
-                                {/* Schatten-Indikator für nachfolgende Task */}
-                                {hasNextTask && nextTask && (
-                                  <div
-                                    className="absolute right-0 top-0 w-1 bg-gradient-to-r from-transparent to-gray-900 opacity-20 rounded-r pointer-events-none z-10"
-                                    style={{ 
-                                      top: `${topPosition}px`, 
-                                      height: `${height}px`,
-                                    }}
-                                  />
-                                )}
                               </div>
                             );
                           })}
@@ -614,34 +698,69 @@ export default function TourenPage() {
         </div>
 
         {/* Right Sidebar - Mitarbeiter Liste */}
-        <div className="w-56 bg-white border-l flex-shrink-0 overflow-y-auto">
-          <div className="p-3 border-b bg-gray-50">
-            <div className="flex items-center gap-2 mb-1">
-              <Users className="w-4 h-4 text-gray-600" />
-              <h2 className="text-sm font-bold text-gray-900">Mitarbeiter</h2>
+        <div className="w-64 bg-gradient-to-b from-purple-50 to-white border-l border-purple-100 flex-shrink-0 overflow-y-auto shadow-sm">
+          <div className="p-4 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-50">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="p-2 bg-purple-500 rounded-lg shadow-sm">
+                <Users className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Mitarbeiter</h2>
+                <p className="text-xs text-gray-600">{activeEmployees.length} im Dienst</p>
+              </div>
             </div>
-            <p className="text-xs text-gray-600">{activeEmployees.length} im Dienst</p>
           </div>
-          <div className="p-2 space-y-1">
+          <div className="p-3 space-y-2">
             {activeEmployees.map((employee) => {
               const stats = getTotalStatsForEmployee(employee.id);
+              const isExaminiert = employee.qualifications.includes('behandlungspflege');
+              
               return (
                 <div
                   key={employee.id}
                   onClick={() => setSelectedEmployeeId(selectedEmployeeId === employee.id ? null : employee.id)}
-                  className={`p-2 rounded cursor-pointer transition-colors ${
+                  className={`p-3 rounded-lg cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md transform hover:-translate-y-0.5 ${
                     selectedEmployeeId === employee.id 
-                      ? 'bg-primary-100 border-2 border-primary-400' 
-                      : 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
+                      ? 'bg-gradient-to-br from-primary-100 to-primary-50 border-2 border-primary-500 ring-2 ring-primary-200' 
+                      : 'bg-white hover:bg-purple-50 border-2 border-gray-200 hover:border-purple-400'
                   }`}
                 >
-                  <div className="text-sm font-semibold text-gray-900 truncate">{employee.name}</div>
-                  <div className="text-xs text-gray-600">{stats.tasks} Einsätze</div>
-                  <div className="text-xs text-gray-600">{formatDuration(stats.duration)}</div>
-                  <div className="flex flex-wrap gap-0.5 mt-1">
-                    {employee.qualifications.slice(0, 2).map(q => (
-                      <span key={q} className="px-1 py-0.5 bg-primary-100 text-primary-700 rounded text-[9px]">{q}</span>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <UserIcon className="w-3.5 h-3.5 text-primary-600" />
+                        <div className="text-sm font-bold text-gray-900 truncate">{employee.name}</div>
+                      </div>
+                      {isExaminiert && (
+                        <span className="inline-block mt-1 px-2 py-0.5 bg-green-100 text-green-700 border border-green-300 rounded-full text-[10px] font-bold">
+                          ✓ Examiniert
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                      <div className="text-[10px] text-gray-600">Einsätze</div>
+                      <div className="text-sm font-bold text-blue-700">{stats.tasks}</div>
+                    </div>
+                    <div className="bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                      <div className="text-[10px] text-gray-600">Zeit</div>
+                      <div className="text-[11px] font-bold text-purple-700">{formatDuration(stats.duration)}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-1">
+                    {employee.qualifications.slice(0, 3).map(q => (
+                      <span key={q} className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[9px] font-medium">
+                        {q.replace('_', ' ')}
+                      </span>
                     ))}
+                    {employee.qualifications.length > 3 && (
+                      <span className="px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded text-[9px] font-medium">
+                        +{employee.qualifications.length - 3}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -663,14 +782,34 @@ export default function TourenPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bewohner</label>
-                <select value={formData.residentId} onChange={(e) => setFormData({ ...formData, residentId: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm">
-                  <option value="">Bitte wählen...</option>
-                  {activeResidents.map(res => (
-                    <option key={res.id} value={res.id}>{res.name} - {res.address.street} {res.address.houseNumber}</option>
-                  ))}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Einsatztyp</label>
+                <select 
+                  value={formData.residentId === 'driving' ? 'driving' : 'resident'} 
+                  onChange={(e) => {
+                    if (e.target.value === 'driving') {
+                      setFormData({ ...formData, residentId: 'driving', taskType: 'dokumentation', notes: 'Fahrtzeit', duration: 10 });
+                    } else {
+                      setFormData({ ...formData, residentId: '', taskType: 'koerperpflege', notes: '' });
+                    }
+                  }} 
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm"
+                >
+                  <option value="resident">🏠 Bewohner-Einsatz</option>
+                  <option value="driving">🚗 Fahrtzeit</option>
                 </select>
               </div>
+
+              {formData.residentId !== 'driving' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bewohner</label>
+                  <select value={formData.residentId} onChange={(e) => setFormData({ ...formData, residentId: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm">
+                    <option value="">Bitte wählen...</option>
+                    {activeResidents.map(res => (
+                      <option key={res.id} value={res.id}>{res.name} - {res.address.street} {res.address.houseNumber}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -683,28 +822,30 @@ export default function TourenPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Leistungsart</label>
-                <select value={formData.taskType} onChange={(e) => setFormData({ ...formData, taskType: e.target.value as TaskType })} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm">
-                  <option value="koerperpflege">Körperpflege</option>
-                  <option value="medikamente">Medikamente</option>
-                  <option value="mobilisation">Mobilisation</option>
-                  <option value="wundversorgung">Wundversorgung</option>
-                  <option value="ernaehrung">Ernährung</option>
-                  <option value="dokumentation">Dokumentation</option>
-                  <option value="arztbesuch">Arztbesuch</option>
-                  <option value="freizeitgestaltung">Freizeitgestaltung</option>
-                </select>
-              </div>
+              {formData.residentId !== 'driving' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Leistungsart</label>
+                  <select value={formData.taskType} onChange={(e) => setFormData({ ...formData, taskType: e.target.value as TaskType })} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm">
+                    <option value="koerperpflege">Körperpflege</option>
+                    <option value="medikamente">Medikamente</option>
+                    <option value="mobilisation">Mobilisation</option>
+                    <option value="wundversorgung">Wundversorgung</option>
+                    <option value="ernaehrung">Ernährung</option>
+                    <option value="dokumentation">Dokumentation</option>
+                    <option value="arztbesuch">Arztbesuch</option>
+                    <option value="freizeitgestaltung">Freizeitgestaltung</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notizen</label>
-                <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={2} placeholder="z.B. Dusche, Tabletten geben..." className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm" />
+                <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={2} placeholder={formData.residentId === 'driving' ? 'Fahrtzeit zwischen Einsätzen' : 'z.B. Dusche, Tabletten geben...'} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm" />
           </div>
         </div>
 
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setShowDialog(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm">
+              <button onClick={() => { setShowDialog(false); setEditingTask(null); }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm">
                 Abbrechen
               </button>
               <button onClick={handleSaveTask} className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 text-sm">

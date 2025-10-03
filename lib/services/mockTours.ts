@@ -154,11 +154,23 @@ export const generateMockToursForWeek = (
         }
       });
       
+      // Gaps: Entferne nur normale Tasks, NICHT Fahrtzeiten
       if (shouldHaveGaps && newTasks.length > 4) {
-        const removeCount = 2 + Math.floor(Math.random() * 3);
+        const normalTasks = newTasks.filter(t => t.residentId !== 'driving');
+        const removeCount = Math.min(2 + Math.floor(Math.random() * 3), normalTasks.length - 2);
+        
         for (let i = 0; i < removeCount; i++) {
-          const randomIndex = Math.floor(Math.random() * newTasks.length);
-          newTasks.splice(randomIndex, 1);
+          const randomTask = normalTasks[Math.floor(Math.random() * normalTasks.length)];
+          const taskIndex = newTasks.findIndex(t => t.id === randomTask.id);
+          
+          // Entferne Task und nachfolgende Fahrtzeit
+          if (taskIndex !== -1) {
+            newTasks.splice(taskIndex, 1);
+            // Entferne auch die Fahrtzeit danach, falls vorhanden
+            if (taskIndex < newTasks.length && newTasks[taskIndex]?.residentId === 'driving') {
+              newTasks.splice(taskIndex, 1);
+            }
+          }
         }
       }
       
@@ -179,17 +191,31 @@ export const initializeMockTours = (
 ) => {
   if (typeof window === 'undefined') return [];
   
-  const STORAGE_KEY = 'pflege_touren_tours_week_v2_with_driving';
+  // WICHTIG: Lösche alte Keys
+  localStorage.removeItem('pflege_touren_tours_week_v2_with_driving');
+  localStorage.removeItem('pflege_touren_tours_week_v3_fixed_driving');
+  
+  const STORAGE_KEY = 'pflege_touren_tours_v4_with_driving_final';
   const existing = localStorage.getItem(STORAGE_KEY);
   
   if (!existing) {
     const tours = generateMockToursForWeek(date, employeeIds.slice(0, 5), residentIds);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tours));
     localStorage.setItem('pflege_touren_tours', JSON.stringify(tours));
-    console.log(`✅ Mock-Touren für Woche erstellt (mit Fahrtzeiten):`, tours.length, 'Tours');
+    
+    // Debug: Zähle Fahrtzeiten
+    const drivingTasks = tours.flatMap(t => t.tasks.filter(task => task.residentId === 'driving'));
+    const normalTasks = tours.flatMap(t => t.tasks.filter(task => task.residentId !== 'driving'));
+    console.log(`✅ Mock-Touren erstellt:`, tours.length, 'Tours');
+    console.log(`   📊 ${normalTasks.length} Einsätze, 🚗 ${drivingTasks.length} Fahrtzeiten`);
+    console.log(`   💾 Alle gespeichert in:`, STORAGE_KEY);
+    
     return tours;
   }
   
-  return JSON.parse(existing);
+  const parsed = JSON.parse(existing);
+  const drivingCount = parsed.flatMap((t: any) => t.tasks.filter((task: any) => task.residentId === 'driving')).length;
+  console.log(`📂 Touren aus Cache geladen: ${parsed.length} Tours, 🚗 ${drivingCount} Fahrtzeiten`);
+  return parsed;
 };
 

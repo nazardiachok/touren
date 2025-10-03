@@ -7,7 +7,6 @@ export function DataInitializer() {
   useEffect(() => {
     initializeMockData();
   }, []);
-
+  
   return null;
 }
-
