@@ -104,6 +104,74 @@ export const generateMockTours = (
   return tours;
 };
 
+const addDrivingTimeTask = (
+  tourId: string,
+  prevTaskEnd: Date,
+  durationMinutes: number,
+  now: string
+): Task => {
+  return {
+    id: generateId(),
+    tourId,
+    residentId: 'driving',
+    type: 'dokumentation' as any,
+    scheduledTime: prevTaskEnd.toISOString(),
+    estimatedDuration: durationMinutes,
+    requiredQualification: 'grundpflege',
+    status: 'pending',
+    notes: 'Fahrtzeit',
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const generateMockToursForWeek = (
+  startDate: string,
+  employeeIds: string[],
+  residentIds: string[]
+): Tour[] => {
+  const tours: Tour[] = [];
+  
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + dayOffset);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    const dayTours = generateMockTours(dateStr, employeeIds, residentIds);
+    
+    dayTours.forEach(tour => {
+      const newTasks: Task[] = [];
+      const shouldHaveGaps = Math.random() > 0.6;
+      
+      tour.tasks.forEach((task, index) => {
+        newTasks.push(task);
+        
+        if (index < tour.tasks.length - 1) {
+          const currentTaskEnd = new Date(new Date(task.scheduledTime).getTime() + task.estimatedDuration * 60000);
+          const drivingMinutes = 5 + Math.floor(Math.random() * 6);
+          
+          newTasks.push(addDrivingTimeTask(tour.id, currentTaskEnd, drivingMinutes, tour.createdAt));
+        }
+      });
+      
+      if (shouldHaveGaps && newTasks.length > 4) {
+        const removeCount = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < removeCount; i++) {
+          const randomIndex = Math.floor(Math.random() * newTasks.length);
+          newTasks.splice(randomIndex, 1);
+        }
+      }
+      
+      tours.push({
+        ...tour,
+        tasks: newTasks,
+      });
+    });
+  }
+  
+  return tours;
+};
+
 export const initializeMockTours = (
   date: string,
   employeeIds: string[],
@@ -111,13 +179,14 @@ export const initializeMockTours = (
 ) => {
   if (typeof window === 'undefined') return [];
   
-  const STORAGE_KEY = `pflege_touren_tours_${date}`;
+  const STORAGE_KEY = 'pflege_touren_tours_week';
   const existing = localStorage.getItem(STORAGE_KEY);
   
   if (!existing) {
-    const tours = generateMockTours(date, employeeIds.slice(0, 5), residentIds);
+    const tours = generateMockToursForWeek(date, employeeIds.slice(0, 5), residentIds);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tours));
-    console.log(`✅ Mock-Touren für ${date} erstellt:`, tours.length);
+    localStorage.setItem('pflege_touren_tours', JSON.stringify(tours));
+    console.log(`✅ Mock-Touren für Woche erstellt:`, tours.length);
     return tours;
   }
   
