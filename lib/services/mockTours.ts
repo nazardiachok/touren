@@ -179,14 +179,14 @@ export const initializeMockTours = (
 ) => {
   if (typeof window === 'undefined') return [];
   
-  const STORAGE_KEY = 'pflege_touren_tours_week';
+  const STORAGE_KEY = 'pflege_touren_tours_week_v2_with_driving';
   const existing = localStorage.getItem(STORAGE_KEY);
   
   if (!existing) {
     const tours = generateMockToursForWeek(date, employeeIds.slice(0, 5), residentIds);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tours));
     localStorage.setItem('pflege_touren_tours', JSON.stringify(tours));
-    console.log(`✅ Mock-Touren für Woche erstellt:`, tours.length);
+    console.log(`✅ Mock-Touren für Woche erstellt (mit Fahrtzeiten):`, tours.length, 'Tours');
     return tours;
   }
   

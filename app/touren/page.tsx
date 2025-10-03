@@ -6,7 +6,7 @@ import { useResidentStore } from '@/lib/store/residentStore';
 import { useTourStore } from '@/lib/store/tourStore';
 import type { Resident, Task, TaskType } from '@/lib/types';
 import { formatDate } from '@/lib/utils/date';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Home, Save, Trash2, User as UserIcon, Users, X } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Edit2, Home, Save, Trash2, User as UserIcon, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const TIMELINE_START = 6;
@@ -27,7 +27,7 @@ const getTaskColor = (taskType: TaskType, isDriving: boolean = false): { bg: str
     koerperpflege: { bg: 'bg-blue-100', border: 'border-blue-400', text: 'text-blue-900', badge: 'bg-blue-200 text-blue-800' },
     medikamente: { bg: 'bg-red-100', border: 'border-red-400', text: 'text-red-900', badge: 'bg-red-200 text-red-800' },
     wundversorgung: { bg: 'bg-orange-100', border: 'border-orange-400', text: 'text-orange-900', badge: 'bg-orange-200 text-orange-800' },
-    mobilisation: { bg: 'bg-emerald-100', border: 'border-emerald-400', text: 'text-emerald-900', badge: 'bg-emerald-200 text-emerald-800' },
+    mobilisation: { bg: 'bg-teal-100', border: 'border-teal-400', text: 'text-teal-900', badge: 'bg-teal-200 text-teal-800' },
     ernaehrung: { bg: 'bg-yellow-100', border: 'border-yellow-400', text: 'text-yellow-900', badge: 'bg-yellow-200 text-yellow-800' },
     dokumentation: { bg: 'bg-gray-100', border: 'border-gray-400', text: 'text-gray-900', badge: 'bg-gray-200 text-gray-800' },
     arztbesuch: { bg: 'bg-purple-100', border: 'border-purple-400', text: 'text-purple-900', badge: 'bg-purple-200 text-purple-800' },
@@ -65,8 +65,9 @@ export default function TourenPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [draggedResident, setDraggedResident] = useState<Resident | null>(null);
+  const [draggedTask, setDraggedTask] = useState<{ task: Task; tourId: string; employeeId: string } | null>(null);
   const [showDialog, setShowDialog] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<{ task: Task; tourId: string } | null>(null);
   
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -113,7 +114,7 @@ export default function TourenPage() {
   if (!mounted) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
@@ -218,18 +219,80 @@ export default function TourenPage() {
   };
 
   const handleDrop = (employeeId: string, time: string) => {
-    if (!draggedResident) return;
+    if (draggedResident) {
+      setFormData({
+        employeeId,
+        residentId: draggedResident.id,
+        startTime: time,
+        duration: 30,
+        taskType: 'koerperpflege',
+        notes: '',
+      });
+      setShowDialog(true);
+      setDraggedResident(null);
+    } else if (draggedTask) {
+      // Task innerhalb Timeline verschieben
+      const oldTour = dayTours.find(t => t.id === draggedTask.tourId);
+      if (!oldTour) return;
 
+      // Task aus alter Tour entfernen
+      const updatedOldTasks = oldTour.tasks.filter(t => t.id !== draggedTask.task.id);
+      
+      // Task zu neuer Tour hinzufügen (mit neuer Zeit)
+      const [hours, minutes] = time.split(':').map(Number);
+      const newScheduledTime = new Date(selectedDate);
+      newScheduledTime.setHours(hours, minutes, 0, 0);
+      
+      const updatedTask = {
+        ...draggedTask.task,
+        scheduledTime: newScheduledTime.toISOString(),
+      };
+
+      if (draggedTask.employeeId === employeeId) {
+        // Gleicher Mitarbeiter - nur Zeit ändern
+        updateTour(oldTour.id, { tasks: [...updatedOldTasks, updatedTask] });
+      } else {
+        // Anderer Mitarbeiter - Tour wechseln
+        updateTour(oldTour.id, { tasks: updatedOldTasks });
+        
+        let targetTour = dayTours.find(t => t.employeeId === employeeId);
+        if (targetTour) {
+          updateTour(targetTour.id, { tasks: [...targetTour.tasks, updatedTask] });
+        } else {
+          addTour({
+            employeeId,
+            date: dateStr,
+            shift: hours < 14 ? 'early' : 'late',
+            plannedStart: '06:00',
+            plannedEnd: '14:00',
+          });
+        }
+      }
+
+      setDraggedTask(null);
+    }
+  };
+
+  const handleEditTask = (task: Task, tourId: string) => {
+    const tour = dayTours.find(t => t.id === tourId);
+    if (!tour) return;
+
+    const taskStart = new Date(task.scheduledTime);
     setFormData({
-      employeeId,
-      residentId: draggedResident.id,
-      startTime: time,
-      duration: 30,
-      taskType: 'koerperpflege',
-      notes: '',
+      employeeId: tour.employeeId,
+      residentId: task.residentId,
+      startTime: formatDate(taskStart, 'HH:mm'),
+      duration: task.estimatedDuration,
+      taskType: task.type,
+      notes: task.notes || '',
     });
+    setEditingTask({ task, tourId });
     setShowDialog(true);
-    setDraggedResident(null);
+  };
+
+  const handleTaskDragStart = (task: Task, tourId: string, employeeId: string) => {
+    if (task.residentId === 'driving') return; // Fahrtzeit nicht verschiebbar
+    setDraggedTask({ task, tourId, employeeId });
   };
 
   const handleDeleteTask = (task: Task, tourId: string) => {
@@ -255,32 +318,57 @@ export default function TourenPage() {
     const resident = residents.find(r => r.id === formData.residentId);
     const requirement = resident?.requirements.find(r => r.type === formData.taskType);
 
-    const newTask: Task = {
-      id: `task_${Date.now()}_${Math.random()}`,
-      tourId: '',
-      residentId: formData.residentId,
-      type: formData.taskType,
-      scheduledTime: scheduledTime.toISOString(),
-      estimatedDuration: formData.duration,
-      requiredQualification: requirement?.requiredQualification || 'grundpflege',
-      status: 'pending',
-      notes: formData.notes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    if (editingTask) {
+      // Task bearbeiten
+      const tour = dayTours.find(t => t.id === editingTask.tourId);
+      if (!tour) return;
 
-    let tour = dayTours.find(t => t.employeeId === formData.employeeId);
+      const updatedTasks = tour.tasks.map(t => 
+        t.id === editingTask.task.id 
+          ? {
+              ...t,
+              residentId: formData.residentId,
+              type: formData.taskType,
+              scheduledTime: scheduledTime.toISOString(),
+              estimatedDuration: formData.duration,
+              requiredQualification: requirement?.requiredQualification || 'grundpflege',
+              notes: formData.notes,
+              updatedAt: new Date().toISOString(),
+            }
+          : t
+      );
 
-    if (tour) {
-      updateTour(tour.id, { tasks: [...tour.tasks, newTask] });
+      updateTour(tour.id, { tasks: updatedTasks });
+      setEditingTask(null);
     } else {
-      addTour({
-        employeeId: formData.employeeId,
-        date: dateStr,
-        shift: hours < 14 ? 'early' : 'late',
-        plannedStart: '06:00',
-        plannedEnd: '14:00',
-      });
+      // Neuer Task erstellen
+      const newTask: Task = {
+        id: `task_${Date.now()}_${Math.random()}`,
+        tourId: '',
+        residentId: formData.residentId,
+        type: formData.taskType,
+        scheduledTime: scheduledTime.toISOString(),
+        estimatedDuration: formData.duration,
+        requiredQualification: requirement?.requiredQualification || 'grundpflege',
+        status: 'pending',
+        notes: formData.notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      let tour = dayTours.find(t => t.employeeId === formData.employeeId);
+
+      if (tour) {
+        updateTour(tour.id, { tasks: [...tour.tasks, newTask] });
+      } else {
+        addTour({
+          employeeId: formData.employeeId,
+          date: dateStr,
+          shift: hours < 14 ? 'early' : 'late',
+          plannedStart: '06:00',
+          plannedEnd: '14:00',
+        });
+      }
     }
 
     setShowDialog(false);
@@ -335,7 +423,7 @@ export default function TourenPage() {
               <h2 className="text-sm font-bold text-gray-900">Bewohner</h2>
             </div>
             <p className="text-xs text-gray-600">{activeResidents.length} aktiv</p>
-          </div>
+                  </div>
           <div className="p-2 space-y-1">
             {activeResidents.map((resident) => (
               <div
@@ -369,8 +457,8 @@ export default function TourenPage() {
                       <div className="text-[10px] font-semibold text-gray-700 p-1">{time}</div>
                     </div>
                   ))}
-                </div>
-              </div>
+                          </div>
+                          </div>
 
               {/* Mitarbeiter-Spalten */}
               <div className="flex-1 overflow-x-auto">
@@ -431,7 +519,7 @@ export default function TourenPage() {
                           ))}
 
                           {/* Einsatz-Kacheln */}
-                          {tasks.map((task) => {
+                          {tasks.map((task, taskIndex) => {
                             const resident = residents.find(r => r.id === task.residentId);
                             const isDriving = task.residentId === 'driving';
                             const taskStart = new Date(task.scheduledTime);
@@ -441,38 +529,76 @@ export default function TourenPage() {
                             const height = getHeightInPixels(task.estimatedDuration);
                             const colors = getTaskColor(task.type, isDriving);
 
-                            return (
-                              <div
-                                key={task.id}
-                                className={`absolute left-1 right-1 ${colors.bg} border-2 ${colors.border} rounded p-1.5 hover:shadow-lg hover:z-20 transition-all cursor-pointer group overflow-hidden`}
-                                style={{ top: `${topPosition}px`, height: `${height}px`, minHeight: '30px' }}
-                              >
-                                {!isDriving && (
-                                  <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-opacity z-30">
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task, task.tourId); }} className="p-0.5 bg-white rounded hover:bg-red-50 shadow-sm">
-                                      <Trash2 className="w-3 h-3 text-red-600" />
-                                    </button>
-                                  </div>
-                                )}
+                            // Prüfe ob es eine nachfolgende Task gibt
+                            const nextTask = tasks[taskIndex + 1];
+                            const hasNextTask = nextTask && new Date(nextTask.scheduledTime) <= taskEnd;
 
-                                <div className={`text-[9px] font-bold ${colors.text} truncate`}>
-                                  {formatDate(taskStart, 'HH:mm')} - {formatDate(taskEnd, 'HH:mm')}
+                            return (
+                              <div key={task.id} className="relative">
+                                <div
+                                  draggable={!isDriving}
+                                  onDragStart={(e) => {
+                                    if (!isDriving) {
+                                      handleTaskDragStart(task, task.tourId, employee.id);
+                                      e.dataTransfer.effectAllowed = 'move';
+                                    }
+                                  }}
+                                  className={`absolute left-1 right-1 ${colors.bg} border-2 ${colors.border} rounded p-1.5 hover:shadow-lg hover:z-20 transition-all ${isDriving ? 'cursor-default' : 'cursor-move'} group overflow-hidden`}
+                                  style={{ top: `${topPosition}px`, height: `${height}px`, minHeight: '30px' }}
+                                >
+                                  {!isDriving && (
+                                    <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 flex gap-0.5 transition-opacity z-30">
+                                      <button 
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleEditTask(task, task.tourId); 
+                                        }} 
+                                        className="p-0.5 bg-white rounded hover:bg-blue-50 shadow-sm"
+                                      >
+                                        <Edit2 className="w-3 h-3 text-blue-600" />
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleDeleteTask(task, task.tourId); 
+                                        }} 
+                                        className="p-0.5 bg-white rounded hover:bg-red-50 shadow-sm"
+                                      >
+                                        <Trash2 className="w-3 h-3 text-red-600" />
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  <div className={`text-[9px] font-bold ${colors.text} truncate`}>
+                                    {formatDate(taskStart, 'HH:mm')} - {formatDate(taskEnd, 'HH:mm')}
+                                  </div>
+                                  
+                                  {isDriving ? (
+                                    <div className="text-[9px] text-green-700 font-medium">🚗 Fahrtzeit</div>
+                                  ) : (
+                                    <>
+                                      <div className={`text-[10px] font-semibold ${colors.text} truncate`}>{resident?.name || 'Unbekannt'}</div>
+                                      {height > 40 && (
+                                        <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                          <span className={`px-1 py-0.5 ${colors.badge} rounded text-[8px] font-medium`}>{task.type}</span>
+                    </div>
+                  )}
+                                      {task.notes && height > 55 && (
+                                        <div className="text-[8px] text-gray-600 mt-0.5 italic truncate">{task.notes}</div>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
-                                
-                                {isDriving ? (
-                                  <div className="text-[9px] text-green-700 font-medium">🚗 Fahrtzeit</div>
-                                ) : (
-                                  <>
-                                    <div className={`text-[10px] font-semibold ${colors.text} truncate`}>{resident?.name || 'Unbekannt'}</div>
-                                    {height > 40 && (
-                                      <div className="flex flex-wrap gap-0.5 mt-0.5">
-                                        <span className={`px-1 py-0.5 ${colors.badge} rounded text-[8px] font-medium`}>{task.type}</span>
-                                      </div>
-                                    )}
-                                    {task.notes && height > 55 && (
-                                      <div className="text-[8px] text-gray-600 mt-0.5 italic truncate">{task.notes}</div>
-                                    )}
-                                  </>
+
+                                {/* Schatten-Indikator für nachfolgende Task */}
+                                {hasNextTask && nextTask && (
+                                  <div
+                                    className="absolute right-0 top-0 w-1 bg-gradient-to-r from-transparent to-gray-900 opacity-20 rounded-r pointer-events-none z-10"
+                                    style={{ 
+                                      top: `${topPosition}px`, 
+                                      height: `${height}px`,
+                                    }}
+                                  />
                                 )}
                               </div>
                             );
@@ -524,13 +650,13 @@ export default function TourenPage() {
         </div>
       </div>
 
-      {/* Dialog: Einsatz erstellen */}
+      {/* Dialog: Einsatz erstellen/bearbeiten */}
       {showDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold">Neuen Einsatz erstellen</h2>
-              <button onClick={() => setShowDialog(false)} className="p-1 hover:bg-gray-100 rounded">
+              <h2 className="text-lg font-bold">{editingTask ? 'Einsatz bearbeiten' : 'Neuen Einsatz erstellen'}</h2>
+              <button onClick={() => { setShowDialog(false); setEditingTask(null); }} className="p-1 hover:bg-gray-100 rounded">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -574,8 +700,8 @@ export default function TourenPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notizen</label>
                 <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={2} placeholder="z.B. Dusche, Tabletten geben..." className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 text-sm" />
-              </div>
-            </div>
+          </div>
+        </div>
 
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setShowDialog(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm">
@@ -584,11 +710,11 @@ export default function TourenPage() {
               <button onClick={handleSaveTask} className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 text-sm">
                 <Save className="w-4 h-4" />
                 Speichern
-              </button>
+            </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        )}
     </div>
   );
 }
