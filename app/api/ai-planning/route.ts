@@ -88,11 +88,14 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ GPT-5 Antwort erhalten');
     console.log('   Tokens verwendet:', data.usage?.total_tokens || 'unbekannt');
+    console.log('📝 AI Content (erste 500 Zeichen):', aiContent.substring(0, 500));
 
     // Parse AI Response
     const planningResponse: AIPlanningResponse = parseAIResponse(aiContent);
 
     if (!planningResponse.success) {
+      console.error('❌ Parsing fehlgeschlagen');
+      console.error('Raw Response:', aiContent);
       return NextResponse.json(
         { 
           error: 'Fehler beim Parsen der KI-Antwort',
@@ -106,6 +109,9 @@ export async function POST(request: NextRequest) {
     console.log('✅ Tourenplan erstellt:');
     console.log('   Touren:', planningResponse.tours.length);
     console.log('   Reasoning:', planningResponse.reasoning);
+    if (planningResponse.warnings) {
+      console.log('⚠️  Warnungen:', planningResponse.warnings);
+    }
 
     return NextResponse.json({
       success: true,

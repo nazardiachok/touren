@@ -1,5 +1,5 @@
-import type { Employee, Resident, Tour, Task, CreateTourInput } from '@/lib/types';
-import { format, addMinutes, parseISO } from 'date-fns';
+import type { CreateTourInput, Employee, Resident, Tour } from '@/lib/types';
+import { format } from 'date-fns';
 
 export interface PlanningContext {
   date: string;
@@ -50,21 +50,29 @@ export function preparePlanningContext(
   return {
     date: format(date, 'yyyy-MM-dd'),
     employees: employees.map(emp => ({
-      ...emp,
-      // Nur relevante Infos für KI
+      id: emp.id,
+      name: emp.name,
       qualifications: emp.qualifications,
       availability: emp.availability,
       maxHoursPerWeek: emp.maxHoursPerWeek,
-    })),
+      contactInfo: emp.contactInfo,
+      createdAt: emp.createdAt,
+      updatedAt: emp.updatedAt,
+    } as Employee)),
     residents: residents.map(res => ({
-      ...res,
-      // Nur relevante Infos für KI
+      id: res.id,
+      name: res.name,
       careLevel: res.careLevel,
       requirements: res.requirements,
       address: res.address,
       preferences: res.preferences,
       medicalInfo: res.medicalInfo,
-    })),
+      contactInfo: res.contactInfo,
+      emergencyContact: res.emergencyContact,
+      insuranceInfo: res.insuranceInfo,
+      createdAt: res.createdAt,
+      updatedAt: res.updatedAt,
+    } as Resident)),
     existingTours,
   };
 }
@@ -184,25 +192,49 @@ Erstelle einen angepassten Tourenplan, der diese Änderungen berücksichtigt.
 export function parseAIResponse(response: string): AIPlanningResponse {
   try {
     // Extrahiere JSON aus Markdown-Code-Block falls vorhanden
-    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || response.match(/```\n([\s\S]*?)\n```/);
+    let jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
+    
+    if (!jsonMatch) {
+      jsonMatch = response.match(/```\n([\s\S]*?)\n```/);
+    }
+    
+    if (!jsonMatch) {
+      // Versuche JSON direkt zu finden (falls ohne Code-Block)
+      const jsonStart = response.indexOf('{');
+      const jsonEnd = response.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        jsonMatch = [response, response.substring(jsonStart, jsonEnd + 1)];
+      }
+    }
+    
     const jsonString = jsonMatch ? jsonMatch[1] : response;
     
-    const parsed = JSON.parse(jsonString);
+    console.log('🔍 Parsing JSON, Länge:', jsonString.length);
+    
+    const parsed = JSON.parse(jsonString.trim());
+    
+    // Validiere Struktur
+    if (!parsed.tours || !Array.isArray(parsed.tours)) {
+      throw new Error('Keine gültige tours-Array gefunden');
+    }
+    
+    console.log('✅ JSON erfolgreich geparst:', parsed.tours.length, 'Touren');
     
     return {
       success: true,
-      tours: parsed.tours || [],
+      tours: parsed.tours,
       reasoning: parsed.reasoning || 'Keine Erklärung vorhanden',
       warnings: parsed.warnings,
       statistics: parsed.statistics,
     };
   } catch (error) {
-    console.error('Failed to parse AI response:', error);
+    console.error('❌ Failed to parse AI response:', error);
+    console.error('Response snippet:', response.substring(0, 200));
     return {
       success: false,
       tours: [],
       reasoning: 'Fehler beim Parsen der KI-Antwort',
-      warnings: ['Die KI-Antwort konnte nicht verarbeitet werden'],
+      warnings: [`Die KI-Antwort konnte nicht verarbeitet werden: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`],
     };
   }
 }
