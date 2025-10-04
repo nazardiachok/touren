@@ -1,7 +1,8 @@
 'use client';
 
 import { AIChat } from '@/components/AIChat';
-import { preparePlanningContext, type AIPlanningRequest } from '@/lib/services/aiPlanning';
+import { PlanningProgress, type PlanningStep } from '@/components/PlanningProgress';
+import { preparePlanningContext } from '@/lib/services/aiPlanning';
 import { initializeMockTours } from '@/lib/services/mockTours';
 import { useEmployeeStore } from '@/lib/store/employeeStore';
 import { useResidentStore } from '@/lib/store/residentStore';
@@ -76,6 +77,8 @@ export default function TourenPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<{ reasoning: string; warnings?: string[] } | null>(null);
   const [showAiDialog, setShowAiDialog] = useState(false);
+  const [planningSteps, setPlanningSteps] = useState<PlanningStep[]>([]);
+  const [showPlanningProgress, setShowPlanningProgress] = useState(false);
   
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -96,6 +99,9 @@ export default function TourenPage() {
   const loadTours = useTourStore(state => state.loadTours);
   const addTour = useTourStore(state => state.addTour);
   const updateTour = useTourStore(state => state.updateTour);
+  const addTask = useTourStore(state => state.addTask);
+  const updateTask = useTourStore(state => state.updateTask);
+  const deleteTask = useTourStore(state => state.deleteTask);
 
   useEffect(() => {
     setMounted(true);
@@ -393,22 +399,64 @@ export default function TourenPage() {
     setEditingTask(null);
   };
 
-  // KI-Planungsfunktionen
+  // Helper: Füge Planning-Step hinzu
+  const addPlanningStep = (type: PlanningStep['type'], status: PlanningStep['status'], title: string, details?: string) => {
+    const step: PlanningStep = {
+      id: `step-${Date.now()}-${Math.random()}`,
+      type,
+      status,
+      title,
+      details,
+      timestamp: new Date(),
+    };
+    setPlanningSteps(prev => [...prev, step]);
+    return step.id;
+  };
+
+  const updatePlanningStep = (id: string, status: PlanningStep['status'], details?: string) => {
+    setPlanningSteps(prev => prev.map(step => 
+      step.id === id ? { ...step, status, details: details || step.details } : step
+    ));
+  };
+
+  // KI-Planungsfunktionen mit Agent (die KI kann direkt handeln!)
   const handleAIPlanning = async (action: 'create_full_plan' | 'optimize_existing') => {
+    console.log('🚀 ========================================');
+    console.log('🚀 handleAIPlanning GESTARTET');
+    console.log('🚀 Action:', action);
+    console.log('🚀 ========================================');
+    
     setAiLoading(true);
     setAiResult(null);
+    setPlanningSteps([]);
+    setShowPlanningProgress(true);
     
     try {
+      const dateStr = formatDate(selectedDate, 'yyyy-MM-dd');
+      
+      console.log('📅 Gewähltes Datum:', dateStr);
+      console.log('👥 Mitarbeiter:', employees.length);
+      console.log('🏠 Bewohner:', residents.length);
+      console.log('🗓️ Existierende Touren für diesen Tag:', dayTours.length);
+      
+      addPlanningStep('thinking', 'running', 'Vorbereitung', `Datum: ${dateStr}\nMitarbeiter: ${employees.length}\nBewohner: ${residents.length}`);
+      
       const context = preparePlanningContext(selectedDate, employees, residents, dayTours);
       
-      const request: AIPlanningRequest = {
-        context,
+      const request = {
+        context: {
+          ...context,
+          date: dateStr, // Wichtig: Nutze das ausgewählte Datum!
+          employees,
+          residents,
+          existingTours: dayTours,
+        },
         action,
       };
 
-      console.log('🤖 Starte KI-Planung:', action);
+      const thinkStepId = addPlanningStep('thinking', 'running', 'KI denkt...', 'GPT-5 analysiert die Daten und erstellt einen Tourenplan');
       
-      const response = await fetch('/api/ai-planning', {
+      const response = await fetch('/api/ai-agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -416,34 +464,128 @@ export default function TourenPage() {
 
       if (!response.ok) {
         const error = await response.json();
+        const errorMsg = `${error.error}\n${error.hint || ''}\nDetails: ${JSON.stringify(error.details || {})}`;
+        updatePlanningStep(thinkStepId, 'error', errorMsg);
+        addPlanningStep('result', 'error', 'Fehler bei API-Request', errorMsg);
         throw new Error(error.error || 'API-Fehler');
       }
 
       const result = await response.json();
       
-      if (result.success && result.data) {
-        console.log('✅ KI-Planung erfolgreich:', result.data);
+      console.log('📦 API Response:', result);
+      
+      if (!result.success) {
+        const errMsg = `API war nicht erfolgreich: ${JSON.stringify(result)}`;
+        console.error('❌', errMsg);
+        addPlanningStep('result', 'error', 'API-Fehler', errMsg);
+        throw new Error(errMsg);
+      }
+      
+      if (!result.data || !result.data.actions) {
+        const errMsg = `Keine Actions in Response: ${JSON.stringify(result)}`;
+        console.error('❌', errMsg);
+        addPlanningStep('result', 'error', 'Keine Actions', errMsg);
+        throw new Error(errMsg);
+      }
+      
+      console.log('✅ KI-Agent lieferte', result.data.actions.length, 'Actions');
+      console.log('💭 Reasoning:', result.data.reasoning);
+      
+      if (result.success && result.data && result.data.actions) {
+        updatePlanningStep(thinkStepId, 'completed', `KI hat ${result.data.actions.length} Actions geplant:\n${result.data.reasoning.substring(0, 200)}...`);
         
-        // Lösche alte Touren für diesen Tag
+        addPlanningStep('result', 'running', 'Lösche alte Touren', `${dayTours.length} alte Touren werden entfernt`);
         dayTours.forEach(tour => useTourStore.getState().deleteTour(tour.id));
+        console.log(`🗑️ ${dayTours.length} alte Touren gelöscht`);
         
-        // Erstelle neue Touren
-        result.data.tours.forEach((tourInput: any) => {
-          addTour(tourInput);
-        });
+        // Führe die Actions aus
+        const createdTours = new Map<string, string>();
+        let tourCount = 0;
+        let taskCount = 0;
+        
+        console.log(`🔄 Starte Ausführung von ${result.data.actions.length} Actions...`);
+        
+        for (let i = 0; i < result.data.actions.length; i++) {
+          const actItem = result.data.actions[i];
+          
+          console.log(`🔧 Action ${i+1}/${result.data.actions.length}:`, actItem.function, actItem.args);
+          
+          let stepId: string;
+          let stepTitle: string;
+          
+          if (actItem.function === 'createTour') {
+            tourCount++;
+            const emp = employees.find(e => e.id === actItem.args.employeeId);
+            stepTitle = `Tour ${tourCount}: ${emp?.name || 'Mitarbeiter'} (${actItem.args.shift})`;
+            stepId = addPlanningStep('action', 'running', stepTitle, `${actItem.args.plannedStart} - ${actItem.args.plannedEnd}`);
+            
+            try {
+              console.log('   📝 Erstelle Tour für:', emp?.name, actItem.args);
+              const tour = addTour(actItem.args);
+              createdTours.set('TOUR_ID_FROM_PREVIOUS_STEP', tour.id);
+              console.log(`   ✅ Tour erstellt: ${tour.id}`);
+              updatePlanningStep(stepId, 'completed', `✅ Tour-ID: ${tour.id.substring(0, 8)}...`);
+            } catch (err) {
+              console.error('   ❌ Fehler bei Tour-Erstellung:', err);
+              updatePlanningStep(stepId, 'error', `❌ ${err}`);
+            }
+          } else if (actItem.function === 'addTaskToTour') {
+            taskCount++;
+            const tourId = actItem.args.tourId === 'TOUR_ID_FROM_PREVIOUS_STEP' 
+              ? createdTours.get('TOUR_ID_FROM_PREVIOUS_STEP') || actItem.args.tourId
+              : actItem.args.tourId;
+            
+            if (actItem.args.residentId === 'driving') {
+              stepTitle = `  └─ 🚗 Fahrtzeit (${actItem.args.estimatedDuration}min)`;
+            } else {
+              const res = residents.find(r => r.id === actItem.args.residentId);
+              stepTitle = `  └─ ${res?.name || 'Bewohner'}: ${actItem.args.type} (${actItem.args.estimatedDuration}min)`;
+            }
+            
+            stepId = addPlanningStep('action', 'running', stepTitle);
+            
+            try {
+              console.log(`   📝 Füge Task hinzu zu Tour ${tourId}:`, actItem.args);
+              const task = addTask({
+                ...actItem.args,
+                tourId,
+                requiredQualification: actItem.args.type === 'behandlungspflege' ? 'behandlungspflege' : 'grundpflege',
+              });
+              console.log(`   ✅ Task erstellt: ${task.id}`);
+              updatePlanningStep(stepId, 'completed');
+            } catch (err) {
+              console.error('   ❌ Fehler bei Task-Erstellung:', err);
+              updatePlanningStep(stepId, 'error', `❌ ${err}`);
+            }
+          }
+          
+          // Nur jede 5. Action anzeigen um UI nicht zu überlasten
+          if (i % 5 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        }
+        
+        console.log('🎉 Alle Actions ausgeführt!');
+        console.log(`   📊 ${tourCount} Touren erstellt`);
+        console.log(`   📊 ${taskCount} Einsätze hinzugefügt`);
+        
+        addPlanningStep('result', 'completed', 'Planung abgeschlossen!', `${tourCount} Touren mit ${taskCount} Einsätzen erstellt`);
         
         setAiResult({
           reasoning: result.data.reasoning,
-          warnings: result.data.warnings,
+          warnings: [`${tourCount} Touren erstellt, ${taskCount} Einsätze hinzugefügt`],
         });
-        setShowAiDialog(true);
         
+        console.log('🔄 Lade Touren neu...');
         // Reload tours
-        setTimeout(() => loadTours(), 500);
+        setTimeout(() => {
+          loadTours();
+          console.log('✅ Touren neu geladen');
+        }, 500);
       }
     } catch (error) {
-      console.error('❌ KI-Planungsfehler:', error);
-      alert(`Fehler bei KI-Planung: ${error instanceof Error ? error.message : 'Unbekannt'}`);
+      console.error('❌ KI-Agent-Fehler:', error);
+      addPlanningStep('result', 'error', 'Fehler', error instanceof Error ? error.message : 'Unbekannter Fehler');
     } finally {
       setAiLoading(false);
     }
@@ -989,11 +1131,18 @@ export default function TourenPage() {
               </div>
             </div>
           </div>
-        </div>
+      </div>
       )}
 
       {/* AI Chat Widget */}
       <AIChat />
+
+      {/* Planning Progress Dialog */}
+      <PlanningProgress
+        isOpen={showPlanningProgress}
+        onClose={() => setShowPlanningProgress(false)}
+        steps={planningSteps}
+      />
     </div>
   );
 }
